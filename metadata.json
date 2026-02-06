@@ -1,0 +1,7 @@
+{
+  "name": "VoxGem AI Voiceover",
+  "description": "A professional-grade text-to-speech application powered by Gemini 2.5 Flash. Generate high-quality voiceovers from text with multiple AI personas.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
