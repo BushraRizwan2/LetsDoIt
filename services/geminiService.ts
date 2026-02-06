@@ -12,7 +12,10 @@ const getApiKey = () => {
 };
 
 export async function generateSpeech(text: string, voiceName: string, speed: number = 1.0): Promise<Blob> {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const key = getApiKey();
+  if (!key) throw new Error("API Key is missing. Please check your environment configuration.");
+  
+  const ai = new GoogleGenAI({ apiKey: key });
   try {
     const speedInstruction = speed === 1.0 ? "" : `Speak at ${speed}x speed. `;
     const fullPrompt = `${speedInstruction}${text}`;
@@ -44,15 +47,26 @@ export async function generateSpeech(text: string, voiceName: string, speed: num
   }
 }
 
-export function createAssistantChat(): Chat {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  return ai.chats.create({
-    model: 'gemini-3-pro-preview',
-    config: {
-      systemInstruction: 'You are an elite Script Architect and Research Assistant. Help users brainstorm, analyze, and write professional scripts for voiceovers. Use Google Search to ensure factual accuracy. Format your output clearly with sections like "Analysis", "Draft", and "Research Findings".',
-      tools: [{ googleSearch: {} }]
-    },
-  });
+export function createAssistantChat(): Chat | null {
+  const key = getApiKey();
+  if (!key) {
+    console.warn("Gemini API key is missing. Chat Assistant will be disabled.");
+    return null;
+  }
+  
+  try {
+    const ai = new GoogleGenAI({ apiKey: key });
+    return ai.chats.create({
+      model: 'gemini-3-pro-preview',
+      config: {
+        systemInstruction: 'You are an elite Script Architect and Research Assistant. Help users brainstorm, analyze, and write professional scripts for voiceovers. Use Google Search to ensure factual accuracy. Format your output clearly with sections like "Analysis", "Draft", and "Research Findings".',
+        tools: [{ googleSearch: {} }]
+      },
+    });
+  } catch (err) {
+    console.error("Failed to create Chat instance:", err);
+    return null;
+  }
 }
 
 export interface ImageReferences {
@@ -67,7 +81,10 @@ export async function generateImage(
   aspectRatio: string = "1:1", 
   references?: ImageReferences
 ): Promise<{ base64: string, url: string }> {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const key = getApiKey();
+  if (!key) throw new Error("API Key is missing for visual synthesis.");
+  
+  const ai = new GoogleGenAI({ apiKey: key });
   try {
     const parts: any[] = [];
     let complexPrompt = prompt ? `Primary Instructions: ${prompt}\n\n` : "Generate an image based on the provided visual and descriptive references.\n\n";
@@ -157,14 +174,16 @@ export async function generateImage(
 
 export async function upscaleImage(originalBase64: string, prompt: string): Promise<{ base64: string, url: string }> {
   const windowObj = window as any;
-  // Gemini 3 Pro image models require mandatory user API key selection
   const hasKey = windowObj.aistudio?.hasSelectedApiKey ? await windowObj.aistudio.hasSelectedApiKey() : true;
   if (!hasKey && windowObj.aistudio?.openSelectKey) {
     await windowObj.aistudio.openSelectKey();
   }
 
   try {
-    const highResAi = new GoogleGenAI({ apiKey: getApiKey() });
+    const key = getApiKey();
+    if (!key) throw new Error("API Key required for Pro features.");
+    
+    const highResAi = new GoogleGenAI({ apiKey: key });
     const response = await highResAi.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: {
@@ -207,12 +226,9 @@ export async function upscaleImage(originalBase64: string, prompt: string): Prom
   }
 }
 
-/**
- * Cinematic Video Generation using Veo 3.1
- */
 export async function generateVideo(
   prompt: string,
-  imageContent: string, // base64
+  imageContent: string, 
   aspectRatio: '16:9' | '9:16' = '16:9',
   resolution: '720p' | '1080p' = '1080p'
 ): Promise<string> {
@@ -222,8 +238,10 @@ export async function generateVideo(
     await windowObj.aistudio.openSelectKey();
   }
 
-  // Use a new instance right before the call to ensure latest paid key is picked up
-  const dynamicAi = new GoogleGenAI({ apiKey: getApiKey() });
+  const key = getApiKey();
+  if (!key) throw new Error("API Key required for Video generation.");
+  
+  const dynamicAi = new GoogleGenAI({ apiKey: key });
 
   try {
     let operation = await dynamicAi.models.generateVideos({
@@ -248,7 +266,7 @@ export async function generateVideo(
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!downloadLink) throw new Error("Video generation failed: No download link returned.");
 
-    const response = await fetch(`${downloadLink}&key=${getApiKey()}`);
+    const response = await fetch(`${downloadLink}&key=${key}`);
     const blob = await response.blob();
     return URL.createObjectURL(blob);
   } catch (error: any) {

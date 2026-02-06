@@ -62,6 +62,7 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
   const [isLoading, setIsLoading] = useState(false);
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   
   const chatRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -75,11 +76,32 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    chatRef.current = createAssistantChat();
-    setMessages([{ 
-      role: 'model', 
-      text: "Hello! I'm your Script Architect. I can help you research facts, analyze your current script's tone, or write a whole new story from scratch. I now also support Live Voice conversations! How can I help today?" 
-    }]);
+    const initialize = () => {
+      try {
+        const chat = createAssistantChat();
+        if (chat) {
+          chatRef.current = chat;
+          setMessages([{ 
+            role: 'model', 
+            text: "Hello! I'm your Script Architect. I can help you research facts, analyze your current script's tone, or write a whole new story from scratch. I now also support Live Voice conversations! How can I help today?" 
+          }]);
+        } else {
+          const errMsg = "Gemini API key is not configured. Assistant features are currently unavailable.";
+          setInitError(errMsg);
+          showToast("Intelligence Engine failed to initialize.", "error");
+          setMessages([{ 
+            role: 'model', 
+            text: "I'm currently offline because no API key was found in the environment. Please check your Vercel project configuration." 
+          }]);
+        }
+      } catch (err) {
+        console.error("Assistant init error:", err);
+        setInitError("A fatal error occurred during initialization.");
+        showToast("Initialization error.", "error");
+      }
+    };
+
+    initialize();
 
     return () => {
       stopLiveSession();
@@ -93,7 +115,10 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || !chatRef.current) {
+      if (!chatRef.current) showToast("Assistant is not connected.", "error");
+      return;
+    }
 
     const userMessage: Message = { role: 'user', text: input };
     setMessages(prev => [...prev, userMessage]);
@@ -119,11 +144,17 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
   };
 
   const startLiveSession = async () => {
+    const key = (window as any).process?.env?.API_KEY;
+    if (!key) {
+      showToast("Live mode requires an active API key.", "error");
+      return;
+    }
+
     if (isConnecting || isLiveMode) return;
     setIsConnecting(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: key });
       
       audioContextInRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       audioContextOutRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -229,7 +260,7 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
       liveSessionRef.current = await sessionPromise;
     } catch (err) {
       console.error("Failed to start live session:", err);
-      showToast("Access denied: Microphone is required.", "error");
+      showToast("Microphone access denied or connection failed.", "error");
       setIsConnecting(false);
       stopLiveSession();
     }
@@ -286,34 +317,38 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
               {isLiveMode ? 'Live Architect' : 'Script Architect'}
             </h3>
             <p className={`text-[9px] font-bold uppercase ${isLiveMode ? 'text-rose-400' : 'text-emerald-400'}`}>
-              {isLiveMode ? 'Voice Mode Active' : 'Pro Intelligence Active'}
+              {isLiveMode ? 'Voice Mode Active' : (initError ? 'Offline Mode' : 'Pro Intelligence Active')}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            onClick={isLiveMode ? stopLiveSession : startLiveSession}
-            disabled={isConnecting}
-            className={`text-[10px] px-4 py-1.5 rounded-lg border transition-all font-bold uppercase flex items-center gap-2 ${
-              isLiveMode 
-                ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white' 
-                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white'
-            }`}
-          >
-            {isConnecting ? (
-              <><i className="fas fa-spinner fa-spin"></i> Connecting</>
-            ) : isLiveMode ? (
-              <><i className="fas fa-phone-slash"></i> End Talk</>
-            ) : (
-              <><i className="fas fa-headset"></i> Talk to AI</>
-            )}
-          </button>
-          <button 
-            onClick={analyzeCurrent}
-            className="text-[10px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 px-3 py-1.5 rounded-lg border border-indigo-500/20 transition-all font-bold uppercase"
-          >
-            Analyze Editor
-          </button>
+          {!initError && (
+            <>
+              <button 
+                onClick={isLiveMode ? stopLiveSession : startLiveSession}
+                disabled={isConnecting}
+                className={`text-[10px] px-4 py-1.5 rounded-lg border transition-all font-bold uppercase flex items-center gap-2 ${
+                  isLiveMode 
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white' 
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white'
+                }`}
+              >
+                {isConnecting ? (
+                  <><i className="fas fa-spinner fa-spin"></i> Connecting</>
+                ) : isLiveMode ? (
+                  <><i className="fas fa-phone-slash"></i> End Talk</>
+                ) : (
+                  <><i className="fas fa-headset"></i> Talk to AI</>
+                )}
+              </button>
+              <button 
+                onClick={analyzeCurrent}
+                className="text-[10px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 px-3 py-1.5 rounded-lg border border-indigo-500/20 transition-all font-bold uppercase"
+              >
+                Analyze Editor
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -374,7 +409,7 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
                 </div>
               )}
 
-              {msg.role === 'model' && msg.text.length > 20 && (
+              {msg.role === 'model' && msg.text.length > 20 && !initError && (
                 <button
                   onClick={() => onApplyScript(msg.text)}
                   className="mt-4 w-full py-2 bg-indigo-500/10 hover:bg-indigo-500 text-indigo-400 hover:text-white rounded-xl text-[10px] font-bold uppercase transition-all border border-indigo-500/20"
@@ -397,21 +432,29 @@ const ScriptAssistant: React.FC<ScriptAssistantProps> = ({ onApplyScript, curren
             </div>
           </div>
         )}
+        {initError && (
+           <div className="mt-8 p-6 bg-rose-500/5 border border-rose-500/20 rounded-2xl text-center">
+             <i className="fas fa-triangle-exclamation text-rose-500 text-xl mb-4"></i>
+             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">System Restricted</p>
+             <p className="text-[11px] text-slate-500 leading-relaxed">The AI Architect requires an API Key to connect. Please ensure <code>API_KEY</code> is correctly set in your Vercel project environment variables.</p>
+           </div>
+        )}
       </div>
 
-      <div className={`p-4 bg-slate-800/30 border-t border-slate-700/50 ${isLiveMode ? 'opacity-20 pointer-events-none' : ''}`}>
+      <div className={`p-4 bg-slate-800/30 border-t border-slate-700/50 ${isLiveMode || initError ? 'opacity-20 pointer-events-none' : ''}`}>
         <div className="relative">
           <input
             type="text"
+            disabled={!!initError}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask to research a topic or write a script..."
-            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-2xl py-3 pl-4 pr-12 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all"
+            placeholder={initError ? "Assistant unavailable..." : "Ask to research a topic or write a script..."}
+            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-2xl py-3 pl-4 pr-12 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all disabled:opacity-50"
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim() || isLoading || !!initError}
             className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center transition-all disabled:opacity-50"
           >
             <i className={`fas ${isLoading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
