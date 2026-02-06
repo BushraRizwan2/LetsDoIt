@@ -2,9 +2,17 @@
 import { GoogleGenAI, Modality, Chat } from "@google/genai";
 import { decodeBase64, pcmToWav } from "../utils/audioUtils";
 
-// Re-initializing AI inside each function ensures the most up-to-date API key is used
+const getApiKey = () => {
+  try {
+    // Safely attempt to access process.env, which is shimmed in index.tsx
+    return (window as any).process?.env?.API_KEY || '';
+  } catch (e) {
+    return '';
+  }
+};
+
 export async function generateSpeech(text: string, voiceName: string, speed: number = 1.0): Promise<Blob> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     const speedInstruction = speed === 1.0 ? "" : `Speak at ${speed}x speed. `;
     const fullPrompt = `${speedInstruction}${text}`;
@@ -37,7 +45,7 @@ export async function generateSpeech(text: string, voiceName: string, speed: num
 }
 
 export function createAssistantChat(): Chat {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   return ai.chats.create({
     model: 'gemini-3-pro-preview',
     config: {
@@ -59,7 +67,7 @@ export async function generateImage(
   aspectRatio: string = "1:1", 
   references?: ImageReferences
 ): Promise<{ base64: string, url: string }> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     const parts: any[] = [];
     let complexPrompt = prompt ? `Primary Instructions: ${prompt}\n\n` : "Generate an image based on the provided visual and descriptive references.\n\n";
@@ -150,13 +158,13 @@ export async function generateImage(
 export async function upscaleImage(originalBase64: string, prompt: string): Promise<{ base64: string, url: string }> {
   const windowObj = window as any;
   // Gemini 3 Pro image models require mandatory user API key selection
-  const hasKey = await windowObj.aistudio.hasSelectedApiKey();
-  if (!hasKey) {
+  const hasKey = windowObj.aistudio?.hasSelectedApiKey ? await windowObj.aistudio.hasSelectedApiKey() : true;
+  if (!hasKey && windowObj.aistudio?.openSelectKey) {
     await windowObj.aistudio.openSelectKey();
   }
 
   try {
-    const highResAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const highResAi = new GoogleGenAI({ apiKey: getApiKey() });
     const response = await highResAi.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: {
@@ -190,7 +198,7 @@ export async function upscaleImage(originalBase64: string, prompt: string): Prom
     }
     throw new Error("Upscaling failed: No image returned.");
   } catch (error: any) {
-    if (error.message?.includes("Requested entity was not found")) {
+    if (error.message?.includes("Requested entity was not found") && windowObj.aistudio?.openSelectKey) {
       await windowObj.aistudio.openSelectKey();
       throw new Error("Project not found. Please re-select a paid project API key.");
     }
@@ -209,13 +217,13 @@ export async function generateVideo(
   resolution: '720p' | '1080p' = '1080p'
 ): Promise<string> {
   const windowObj = window as any;
-  const hasKey = await windowObj.aistudio.hasSelectedApiKey();
-  if (!hasKey) {
+  const hasKey = windowObj.aistudio?.hasSelectedApiKey ? await windowObj.aistudio.hasSelectedApiKey() : true;
+  if (!hasKey && windowObj.aistudio?.openSelectKey) {
     await windowObj.aistudio.openSelectKey();
   }
 
   // Use a new instance right before the call to ensure latest paid key is picked up
-  const dynamicAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const dynamicAi = new GoogleGenAI({ apiKey: getApiKey() });
 
   try {
     let operation = await dynamicAi.models.generateVideos({
@@ -240,11 +248,11 @@ export async function generateVideo(
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!downloadLink) throw new Error("Video generation failed: No download link returned.");
 
-    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+    const response = await fetch(`${downloadLink}&key=${getApiKey()}`);
     const blob = await response.blob();
     return URL.createObjectURL(blob);
   } catch (error: any) {
-    if (error.message?.includes("Requested entity was not found")) {
+    if (error.message?.includes("Requested entity was not found") && windowObj.aistudio?.openSelectKey) {
       await windowObj.aistudio.openSelectKey();
       throw new Error("Project not found. Please re-select a paid project API key.");
     }
